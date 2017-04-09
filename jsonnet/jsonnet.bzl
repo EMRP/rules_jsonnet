@@ -88,6 +88,7 @@ def _jsonnet_to_json_impl(ctx):
   toolchain = _jsonnet_toolchain(ctx)
   jsonnet_vars = ctx.attr.vars
   jsonnet_code_vars = ctx.attr.code_vars
+  jsonnet_var_files = ctx.attr.var_files
   command = (
       [
           "set -e;",
@@ -99,7 +100,11 @@ def _jsonnet_to_json_impl(ctx):
       ["--var '%s'='%s'"
        % (var, jsonnet_vars[var]) for var in jsonnet_vars.keys()] +
       ["--code-var '%s'='%s'"
-       % (var, jsonnet_code_vars[var]) for var in jsonnet_code_vars.keys()])
+       % (var, jsonnet_code_vars[var]) for var in jsonnet_code_vars.keys()] +
+      ["--ext-str-file '%s'='%s'"
+       % (var, file.short_path) for var, file in zip(ctx.attr.var_file_keys, ctx.files.var_files)])
+  if ctx.attr.yaml_stream:
+    command += ["--yaml-stream"]
 
   outputs = []
   # If multiple_outputs is set to true, then jsonnet will be invoked with the
@@ -114,13 +119,17 @@ def _jsonnet_to_json_impl(ctx):
   else:
     compiled_json = ctx.outputs.outs[0]
     outputs += [compiled_json]
-    command += [ctx.file.src.path, "-o", compiled_json.path]
+    if ctx.attr.yaml_stream:
+      command += [ctx.file.src.path, "> " + compiled_json.path]
+    else:
+      command += [ctx.file.src.path, "-o", compiled_json.path]
 
   transitive_data = set()
   for dep in ctx.attr.deps:
     transitive_data + dep.data_runfiles.files
 
   runfiles = ctx.runfiles(
+      files = ctx.files.var_files,
       collect_data = True,
       transitive_files = transitive_data,
   )
@@ -203,11 +212,10 @@ def _jsonnet_to_json_test_impl(ctx):
       ["--var %s=%s"
        % (var, jsonnet_vars[var]) for var in jsonnet_vars.keys()] +
       ["--code-var %s=%s"
-       % (var, jsonnet_code_vars[var]) for var in jsonnet_code_vars.keys()] +
-      [
-          ctx.file.src.path,
-          "2>&1)",
-      ])
+       % (var, jsonnet_code_vars[var]) for var in jsonnet_code_vars.keys()])
+  if ctx.attr.yaml_stream:
+    jsonnet_command += " -y"
+  jsonnet_command += " " + ctx.file.src.path + "2>&1)"
 
   command = [
       "#!/bin/bash",
@@ -310,6 +318,9 @@ _jsonnet_compile_attrs = {
     ),
     "vars": attr.string_dict(),
     "code_vars": attr.string_dict(),
+    "var_files": attr.label_list(allow_files = True),
+    "var_file_keys": attr.string_list(),
+    "yaml_stream": attr.bool()
 }
 
 _jsonnet_to_json_attrs = {
@@ -604,7 +615,6 @@ def jsonnet_repositories():
   """Adds the external dependencies needed for the Jsonnet rules."""
   native.http_archive(
       name = "jsonnet",
-      url = "http://bazel-mirror.storage.googleapis.com/github.com/google/jsonnet/archive/v0.8.8.tar.gz",
-      sha256 = "668f4ffe1796d22902a485e0c383c1e149dcf7b5364c1bd79e48d8a62b4943b9",
-      strip_prefix = "jsonnet-0.8.8",
+      url = "https://github.com/google/jsonnet/archive/v0.9.3.tar.gz",
+      strip_prefix = "jsonnet-0.9.3",
   )
